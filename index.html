@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>文本比对工具</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    
+    .diff-added {
+      background-color: #e6ffed;
+      border-left: 3px solid #22c55e;
+    }
+    
+    .diff-removed {
+      background-color: #fee2e2;
+      border-left: 3px solid #ef4444;
+    }
+    
+    .diff-modified {
+      background-color: #fef3c7;
+      border-left: 3px solid #f59e0b;
+    }
+    
+    .line-number {
+      background-color: #f3f4f6;
+      color: #6b7280;
+      text-align: right;
+      padding: 0 0.5rem;
+      user-select: none;
+    }
+    
+    .text-area {
+      resize: none;
+      font-family: 'Courier New', monospace;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div class="container mx-auto px-4 py-8">
+    <header class="text-center mb-8">
+      <h1 class="text-3xl font-bold text-gray-900 mb-2">文本比对工具</h1>
+      <p class="text-gray-600">快速比较两个文本的差异</p>
+    </header>
+    
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div class="flex flex-col md:flex-row gap-4 mb-6">
+        <div class="flex-1">
+          <label class="block text-sm font-medium text-gray-700 mb-1">原始文本</label>
+          <div class="relative">
+            <textarea id="text1" class="text-area w-full h-64 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="请输入原始文本..."></textarea>
+            <input type="file" id="file1" accept=".txt,.md,.html" class="absolute top-2 right-2 text-sm text-gray-500">
+          </div>
+        </div>
+        <div class="flex-1">
+          <label class="block text-sm font-medium text-gray-700 mb-1">目标文本</label>
+          <div class="relative">
+            <textarea id="text2" class="text-area w-full h-64 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="请输入目标文本..."></textarea>
+            <input type="file" id="file2" accept=".txt,.md,.html" class="absolute top-2 right-2 text-sm text-gray-500">
+          </div>
+        </div>
+      </div>
+      
+      <div class="flex items-center gap-4 mb-6">
+        <div class="flex items-center">
+          <input type="checkbox" id="ignoreWhitespace" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+          <label for="ignoreWhitespace" class="ml-2 block text-sm text-gray-700">忽略空白</label>
+        </div>
+        <button id="compareBtn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+          开始比对
+        </button>
+        <button id="exportBtn" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2" disabled>
+          导出结果
+        </button>
+      </div>
+    </div>
+    
+    <div id="result" class="bg-white rounded-lg shadow-md p-6 hidden">
+      <h2 class="text-xl font-semibold text-gray-900 mb-4">比对结果</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <h3 class="text-sm font-medium text-gray-700 mb-2">原始文本</h3>
+          <div id="result1" class="border border-gray-300 rounded-md overflow-auto max-h-96"></div>
+        </div>
+        <div>
+          <h3 class="text-sm font-medium text-gray-700 mb-2">目标文本</h3>
+          <div id="result2" class="border border-gray-300 rounded-md overflow-auto max-h-96"></div>
+        </div>
+      </div>
+      <div class="mt-4 text-sm text-gray-600">
+        <p id="diffStats"></p>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // 文件上传处理
+    document.getElementById('file1').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          document.getElementById('text1').value = e.target.result;
+        };
+        reader.readAsText(file);
+      }
+    });
+    
+    document.getElementById('file2').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          document.getElementById('text2').value = e.target.result;
+        };
+        reader.readAsText(file);
+      }
+    });
+    
+    // 比对功能
+    document.getElementById('compareBtn').addEventListener('click', function() {
+      const text1 = document.getElementById('text1').value;
+      const text2 = document.getElementById('text2').value;
+      const ignoreWhitespace = document.getElementById('ignoreWhitespace').checked;
+      
+      const result = compareTexts(text1, text2, ignoreWhitespace);
+      displayResult(result);
+      
+      document.getElementById('result').classList.remove('hidden');
+      document.getElementById('exportBtn').disabled = false;
+    });
+    
+    // 导出功能
+    document.getElementById('exportBtn').addEventListener('click', function() {
+      const resultElement = document.getElementById('result');
+      const html = `
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>文本比对结果</title>
+          <style>
+            body { font-family: 'Inter', sans-serif; margin: 20px; }
+            .diff-added { background-color: #e6ffed; border-left: 3px solid #22c55e; padding: 0.25rem 0.5rem; }
+            .diff-removed { background-color: #fee2e2; border-left: 3px solid #ef4444; padding: 0.25rem 0.5rem; }
+            .diff-modified { background-color: #fef3c7; border-left: 3px solid #f59e0b; padding: 0.25rem 0.5rem; }
+            .line-number { background-color: #f3f4f6; color: #6b7280; text-align: right; padding: 0 0.5rem; user-select: none; }
+            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+            .container { max-width: 1200px; margin: 0 auto; }
+            h1 { text-align: center; color: #374151; }
+            h2 { color: #374151; margin-top: 30px; }
+            h3 { color: #6b7280; font-size: 14px; }
+            .box { border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
+            .content { max-height: 600px; overflow-y: auto; }
+            .stats { margin-top: 20px; font-size: 14px; color: #6b7280; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>文本比对结果</h1>
+            ${resultElement.innerHTML}
+          </div>
+        </body>
+        </html>
+      `;
+      
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'compare-result.html';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+    
+    // 文本比对函数
+    function compareTexts(text1, text2, ignoreWhitespace) {
+      let lines1 = text1.split('\n');
+      let lines2 = text2.split('\n');
+      
+      if (ignoreWhitespace) {
+        lines1 = lines1.map(line => line.trim());
+        lines2 = lines2.map(line => line.trim());
+      }
+      
+      const result = {
+        lines1: [],
+        lines2: [],
+        stats: {
+          added: 0,
+          removed: 0,
+          modified: 0,
+          total: 0
+        }
+      };
+      
+      const maxLines = Math.max(lines1.length, lines2.length);
+      
+      for (let i = 0; i < maxLines; i++) {
+        const line1 = lines1[i] || '';
+        const line2 = lines2[i] || '';
+        
+        if (line1 === line2) {
+          result.lines1.push({ text: line1, type: 'unchanged' });
+          result.lines2.push({ text: line2, type: 'unchanged' });
+        } else if (!line1) {
+          result.lines1.push({ text: '', type: 'empty' });
+          result.lines2.push({ text: line2, type: 'added' });
+          result.stats.added++;
+        } else if (!line2) {
+          result.lines1.push({ text: line1, type: 'removed' });
+          result.lines2.push({ text: '', type: 'empty' });
+          result.stats.removed++;
+        } else {
+          result.lines1.push({ text: line1, type: 'modified' });
+          result.lines2.push({ text: line2, type: 'modified' });
+          result.stats.modified++;
+        }
+        
+        result.stats.total++;
+      }
+      
+      return result;
+    }
+    
+    // 显示比对结果
+    function displayResult(result) {
+      const result1 = document.getElementById('result1');
+      const result2 = document.getElementById('result2');
+      const diffStats = document.getElementById('diffStats');
+      
+      result1.innerHTML = '';
+      result2.innerHTML = '';
+      
+      result.lines1.forEach((line, index) => {
+        const lineElement = document.createElement('div');
+        lineElement.className = 'flex border-b border-gray-200 last:border-b-0';
+        
+        const lineNumber = document.createElement('div');
+        lineNumber.className = 'line-number w-12 py-1';
+        lineNumber.textContent = index + 1;
+        
+        const lineContent = document.createElement('div');
+        lineContent.className = 'flex-1 py-1 px-3';
+        lineContent.textContent = line.text;
+        
+        if (line.type === 'added') {
+          lineContent.classList.add('diff-added');
+        } else if (line.type === 'removed') {
+          lineContent.classList.add('diff-removed');
+        } else if (line.type === 'modified') {
+          lineContent.classList.add('diff-modified');
+        }
+        
+        lineElement.appendChild(lineNumber);
+        lineElement.appendChild(lineContent);
+        result1.appendChild(lineElement);
+      });
+      
+      result.lines2.forEach((line, index) => {
+        const lineElement = document.createElement('div');
+        lineElement.className = 'flex border-b border-gray-200 last:border-b-0';
+        
+        const lineNumber = document.createElement('div');
+        lineNumber.className = 'line-number w-12 py-1';
+        lineNumber.textContent = index + 1;
+        
+        const lineContent = document.createElement('div');
+        lineContent.className = 'flex-1 py-1 px-3';
+        lineContent.textContent = line.text;
+        
+        if (line.type === 'added') {
+          lineContent.classList.add('diff-added');
+        } else if (line.type === 'removed') {
+          lineContent.classList.add('diff-removed');
+        } else if (line.type === 'modified') {
+          lineContent.classList.add('diff-modified');
+        }
+        
+        lineElement.appendChild(lineNumber);
+        lineElement.appendChild(lineContent);
+        result2.appendChild(lineElement);
+      });
+      
+      diffStats.textContent = `差异统计：新增 ${result.stats.added} 行，删除 ${result.stats.removed} 行，修改 ${result.stats.modified} 行，总计 ${result.stats.total} 行`;
+    }
+  </script>
+</body>
+</html>
